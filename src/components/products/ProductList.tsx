@@ -1,4 +1,3 @@
-
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/integrations/supabase/client'
 import { ProductCard } from './ProductCard'
@@ -20,20 +19,7 @@ export function ProductList({ filter = 'popular', categoryId, limit }: ProductLi
     queryFn: async () => {
       let query = supabase
         .from('productivity_hunt.products')
-        .select(`
-          *,
-          maker:productivity_hunt.users!products_maker_id_fkey(
-            id,
-            username,
-            avatar_url,
-            is_verified
-          ),
-          category:productivity_hunt.categories!products_category_id_fkey(
-            id,
-            name,
-            color
-          )
-        `)
+        .select('*')
         .eq('status', 'approved')
 
       if (categoryId) {
@@ -57,31 +43,48 @@ export function ProductList({ filter = 'popular', categoryId, limit }: ProductLi
         query = query.limit(limit)
       }
 
-      const { data, error } = await query
+      const { data: productsData, error: productsError } = await query
 
-      if (error) throw error
+      if (productsError) throw productsError
+
+      if (!productsData) return []
+
+      // Fetch makers for all products
+      const makerIds = productsData.map(p => p.maker_id).filter(Boolean)
+      const { data: makers } = await supabase
+        .from('productivity_hunt.users')
+        .select('id, username, avatar_url, is_verified')
+        .in('id', makerIds)
+
+      // Fetch categories for all products
+      const categoryIds = productsData.map(p => p.category_id).filter(Boolean)
+      const { data: categories } = await supabase
+        .from('productivity_hunt.categories')
+        .select('id, name, color')
+        .in('id', categoryIds)
 
       // Check if user has voted for each product
-      if (user && data) {
-        const productIds = data.map(p => p.id)
-        const { data: userVotes } = await supabase
+      let userVotes: any[] = []
+      if (user) {
+        const productIds = productsData.map(p => p.id)
+        const { data: votesData } = await supabase
           .from('productivity_hunt.votes')
           .select('product_id')
           .eq('user_id', user.id)
           .in('product_id', productIds)
-
-        const votedProductIds = new Set(userVotes?.map(v => v.product_id) || [])
         
-        return data.map(product => ({
-          ...product,
-          user_voted: votedProductIds.has(product.id)
-        }))
+        userVotes = votesData || []
       }
 
-      return data?.map(product => ({
+      const votedProductIds = new Set(userVotes.map(v => v.product_id))
+      
+      // Combine all data
+      return productsData.map(product => ({
         ...product,
-        user_voted: false
-      })) || []
+        maker: makers?.find(m => m.id === product.maker_id),
+        category: categories?.find(c => c.id === product.category_id),
+        user_voted: votedProductIds.has(product.id)
+      }))
     },
   })
 
@@ -125,7 +128,7 @@ export function ProductList({ filter = 'popular', categoryId, limit }: ProductLi
 
   return (
     <div className="space-y-4">
-      {products.map((product, index) => (
+      {products?.map((product, index) => (
         <ProductCard
           key={product.id}
           product={product}
