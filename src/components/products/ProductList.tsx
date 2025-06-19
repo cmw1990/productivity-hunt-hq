@@ -22,18 +22,17 @@ export function ProductList({ filter = 'popular', categoryId, limit }: ProductLi
         .from('productivity_hunt.products')
         .select(`
           *,
-          maker:productivity_hunt.users!maker_id(
+          maker:productivity_hunt.users!products_maker_id_fkey(
             id,
             username,
             avatar_url,
             is_verified
           ),
-          category:productivity_hunt.categories(
+          category:productivity_hunt.categories!products_category_id_fkey(
             id,
             name,
             color
-          ),
-          user_voted:productivity_hunt.votes!inner(user_id)
+          )
         `)
         .eq('status', 'approved')
 
@@ -79,7 +78,10 @@ export function ProductList({ filter = 'popular', categoryId, limit }: ProductLi
         }))
       }
 
-      return data || []
+      return data?.map(product => ({
+        ...product,
+        user_voted: false
+      })) || []
     },
   })
 
